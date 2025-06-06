@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="cs">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XML Parser</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+  <h1>Příbor, u škol</h1>
+  <div id="tbl-time"></div>
+  <table>
+    <thead>
+      <tr>
+        <th>Linka</th>
+        <th>Směr</th>
+        <th>Odjezd</th>
+        <th>Stanoviště</th>
+        <th>Zpoždění</th>
+        <th>Obsazenost</th>
+      </tr>
+    </thead>
+    <tbody id="table-body"></tbody>
+  </table>
+
+  <div id="info-section"></div>
+
+  <script>
+    const xmlUrl1 = "https://www.mpvnet.cz/odis/x/28779/?t=true&pz=true&pocet=30";
+    const xmlUrl2 = "https://www.mpvnet.cz/odis/x/5434574/?t=true&pz=true&pocet=30";
+
+    async function updateTable() {
+      try {
+        const [response1, response2] = await Promise.all([
+          fetch(xmlUrl1),
+          fetch(xmlUrl2),
+        ]);
+        const [xmlText1, xmlText2] = await Promise.all([
+          response1.text(),
+          response2.text(),
+        ]);
+
+        const parser = new DOMParser();
+        const xmlDoc1 = parser.parseFromString(xmlText1, "text/xml");
+        const xmlDoc2 = parser.parseFromString(xmlText2, "text/xml");
+
+        const zaznamy1 = Array.from(xmlDoc1.getElementsByTagName("o"));
+        const zaznamy2 = Array.from(xmlDoc2.getElementsByTagName("o"));
+
+        const tElement = xmlDoc1.getElementsByTagName("t")[0];
+        if (tElement) {
+          const zastNazev = tElement.getAttribute("zast") || "Neznámá zastávka";
+          document.querySelector("h1").textContent = zastNazev;
+        }
+
+        const infoElements = xmlDoc1.getElementsByTagName("i");
+        const infoSection = document.getElementById("info-section");
+        infoSection.innerHTML = "";
+
+        if (infoElements.length > 0) {
+          for (let i = 0; i < infoElements.length; i++) {
+            const infoElement = infoElements[i];
+            const infoText = infoElement.textContent || infoElement.innerText;
+
+            if (infoText.trim()) {
+              const infoDiv = document.createElement("div");
+              infoDiv.className = "info-message";
+              infoDiv.innerHTML = `<i class="info-icon">ℹ️</i> ${infoText}`;
+              infoSection.appendChild(infoDiv);
+            }
+          }
+        }
+
+        function getAliasWithIcon(alias, vyluka) {
+          if (alias === "000316") {
+            return `<img src="flix.webp" alt="Flix" style="width: 100px; height: 20px; object-fit: contain; margin-right: 5px; vertical-align: middle;">`;
+          }
+          if (vyluka === "true") {
+            return `<img src="vyluka.webp" alt="Výluka" style="width: 20px; height: 20px; margin-right: 5px; vertical-align: middle;">${alias}`;
+          }
+          return alias;
+        }
+
+        const records1 = zaznamy1.map((zaznam) => {
+          const alias = zaznam.getAttribute("alias") || "-";
+          const smer = zaznam.getAttribute("smer") || "-";
+          const odjRaw = zaznam.getAttribute("odj") || "-";
+          const stan = zaznam.getAttribute("stan") || "-";
+          const zpoz = zaznam.getAttribute("zpoz") || "0";
+          const obs = zaznam.getAttribute("obs") || "";
+          const vyluka = zaznam.getAttribute("vyluka") || "false";
+          const pz = zaznam.getAttribute("pz") || "";
+
+          let odjFormatted = "-";
+          if (odjRaw !== "-") {
+            const odjDate = new Date(odjRaw);
+            const hours = String(odjDate.getHours()).padStart(2, "0");
+            const minutes = String(odjDate.getMinutes()).padStart(2, "0");
+            odjFormatted = `${hours}:${minutes}`;
+          }
+
+          return {
+            alias,
+            aliasWithIcon: getAliasWithIcon(alias, vyluka),
+            smer,
+            odjFormatted,
+            stan,
+            zpoz,
+            obs,
+            pz,
+            isFromSecond: false,
+          };
+        });
+
+        const records2 = zaznamy2.map((zaznam) => {
+          const alias = zaznam.getAttribute("alias") || "-";
+          const smer = zaznam.getAttribute("smer") || "-";
+          const odjRaw = zaznam.getAttribute("odj") || "-";
+          const zpoz = zaznam.getAttribute("zpoz") || "0";
+
+          let odjFormatted = "-";
+          if (odjRaw !== "-") {
+            const odjDate = new Date(odjRaw);
+            const hours = String(odjDate.getHours()).padStart(2, "0");
+            const minutes = String(odjDate.getMinutes()).padStart(2, "0");
+            odjFormatted = `${hours}:${minutes}`;
+          }
+
+          return {
+            alias,
+            aliasWithIcon: alias,
+            smer,
+            odjFormatted,
+            stan: `<img src="vlak.webp" alt="Vlak" style="width: 20px; height: 20px; vertical-align: middle;">`,
+            zpoz,
+            obs: "",
+            pz: "",
+            isFromSecond: true,
+          };
+        });
+
+        const allRecords = [...records1, ...records2];
+        allRecords.sort((a, b) => {
+          if (a.odjFormatted === "-" && b.odjFormatted === "-") return 0;
+          if (a.odjFormatted === "-") return 1;
+          if (b.odjFormatted === "-") return -1;
+          return a.odjFormatted.localeCompare(b.odjFormatted);
+        });
+
+        const tableBody = document.getElementById("table-body");
+        tableBody.innerHTML = "";
+
+        for (const rec of allRecords) {
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td>${rec.aliasWithIcon}</td>
+<td>
+  ${rec.smer === "Mošnov,Airport nádraží"
+              ? `${rec.smer} <img src="letadlo.webp" alt="Letadlo" style="width: 20px; height: 20px; vertical-align: middle; margin-left: 5px;">`
+              : rec.smer}
+  ${rec.pz ? `<br><small><i>${rec.pz}</i></small>` : ""}
+</td>
+
+            <td>${rec.odjFormatted}</td>
+            <td>${rec.stan}</td>
+            <td>${rec.zpoz} min</td>
+            <td>${rec.obs}</td>
+          `;
+          tableBody.appendChild(row);
+        }
+      } catch (error) {
+        console.error("Chyba při načítání XML:", error);
+      }
+    }
+
+    function updateCurrentTime() {
+      const tblTimeDiv = document.getElementById("tbl-time");
+      if (tblTimeDiv) {
+        const now = new Date();
+        const hours = String(now.getHours()).padStart(2, "0");
+        const minutes = String(now.getMinutes()).padStart(2, "0");
+        const seconds = String(now.getSeconds()).padStart(2, "0");
+
+        tblTimeDiv.textContent = `${hours}:${minutes}:${seconds}`;
+      }
+    }
+
+    updateTable();
+    updateCurrentTime();
+    setInterval(updateTable, 5000);
+    setInterval(updateCurrentTime, 1000);
+  </script>
+</body>
+
+</html>
